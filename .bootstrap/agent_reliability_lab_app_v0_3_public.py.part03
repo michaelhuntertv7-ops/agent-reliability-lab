@@ -1,0 +1,85 @@
+lly did</h2>
+  <p class="muted">Human-readable activity timeline derived from the same structured event evidence.</p>
+  <div id="timeline" class="timeline"></div>
+  <details><summary>Show raw structured evidence</summary><pre id="trace"></pre></details>
+</section>
+
+<div class="note">Private candidate UI. A successful private certification applies only to the exact tested source lineage; UI/code changes require fresh review before public certification claims.</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const b=$('run');
+const labels={
+  TASK_START:['1','Task started'],
+  MODEL_RESPONSE:['M','Model response'],
+  TOOL_REQUEST:['T','Tool requested'],
+  TOOL_RESPONSE:['E','Tool evidence returned'],
+  RETRY:['R','Bounded retry'],
+  FINAL:['✓','Final answer'],
+  TASK_END:['2','Task ended'],
+  RUN_FAIL:['!','Run failed']
+};
+function eventSummary(e){
+  const p=e.payload||{};
+  if(e.event_type==='MODEL_RESPONSE') return `${p.provider||'provider'} · ${p.model||'model'} · finish=${p.finish_reason||'—'} · ${p.total_tokens||0} tokens`;
+  if(e.event_type==='TOOL_REQUEST') return `${p.name||'tool'} requested`;
+  if(e.event_type==='TOOL_RESPONSE') return `${p.name||'tool'} returned evidence`;
+  if(e.event_type==='FINAL') return 'Agent emitted a contract-conforming final action';
+  if(e.event_type==='RUN_FAIL') return `${p.class||'failure'}: ${p.error||'run stopped'}`;
+  return e.event_type||'event';
+}
+function renderTimeline(events){
+  $('timeline').innerHTML='';
+  events.forEach(e=>{
+    const [icon,title]=labels[e.event_type]||['•',e.event_type||'Event'];
+    const div=document.createElement('div');div.className='event';
+    const dot=document.createElement('div');dot.className='dot';dot.textContent=icon;
+    const body=document.createElement('div');
+    const strong=document.createElement('b');strong.textContent=title;
+    const small=document.createElement('small');small.textContent=eventSummary(e);
+    body.append(strong,small);div.append(dot,body);$('timeline').append(div);
+  });
+}
+$('preset').onclick=()=>{
+  $('goal').value='Based only on the supplied policy evidence, determine whether public release is authorized. If the evidence does not support release, say so.';
+  $('evidence').value='Release status: private testing approved.\nPublic publication requires separate owner approval.\nNo public-release approval has been issued.';
+};
+b.onclick=async()=>{
+  b.disabled=true;b.textContent='Running…';
+  $('empty').classList.add('hidden');$('result').classList.remove('hidden');$('traceCard').classList.remove('hidden');
+  try{
+    const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal:$('goal').value,evidence:$('evidence').value})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||'request failed');
+    const p=d.report, ev=d.events||[];
+    $('statusPill').classList.remove('hidden','pass','fail');
+    $('statusPill').textContent=p.status+(p.failure_class?' · '+p.failure_class:'');
+    $('statusPill').classList.add(p.status==='PASS'?'pass':'fail');
+    $('answer').textContent=p.final_output||'(no final visible output)';
+    $('mc').textContent=p.model_calls;$('tc').textContent=p.tool_calls;$('rc').textContent=p.retries_used;$('tok').textContent=p.total_tokens;
+    const reqs=ev.filter(x=>x.event_type==='TOOL_REQUEST');
+    const declared=reqs.every(x=>(x.payload||{}).name==='evidence_search');
+    $('allowCheck').textContent=declared?'PASS — declared tools only':'CHECK';
+    $('allowCheck').className=declared?'ok':'warn';
+    $('retryCheck').textContent=p.retries_used===0?'PASS — no retries':`Observed: ${p.retries_used}`;
+    $('retryCheck').className=p.retries_used===0?'ok':'warn';
+    const finalPresent=ev.some(x=>x.event_type==='FINAL');
+    $('finalCheck').textContent=finalPresent?'PASS — final event present':'FAIL / unavailable';
+    $('finalCheck').className=finalPresent?'ok':'warn';
+    const modelEvent=ev.find(x=>x.event_type==='MODEL_RESPONSE');
+    $('providerCheck').textContent=modelEvent?`${modelEvent.payload.provider||'provider'} / ${modelEvent.payload.model||'model'}`:'No model evidence';
+    $('providerCheck').className=modelEvent?'ok':'warn';
+    renderTimeline(ev);$('trace').textContent=JSON.stringify(ev,null,2);
+  }catch(e){
+    $('statusPill').classList.remove('hidden','pass');$('statusPill').classList.add('fail');$('statusPill').textContent='ERROR';
+    $('answer').textContent=e.message;$('timeline').innerHTML='';$('trace').textContent='';
+  }finally{b.disabled=false;b.textContent='Run bounded agent'}
+};
+</script></body></html>'''
+
+
+PUBLIC_ENABLED = os.getenv("ARL_PUBLIC_DEMO_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
+TRUST_PROXY = os.getenv("ARL_TRUST_PROXY", "true").strip().lower() in {"1", "true", "yes"}
+PER_IP_RUNS_PER_HOUR = max(1, int(os.getenv("ARL_PER_IP_RUNS_PER_HOUR", "3")))
+DAILY_RUN_LIMIT = max(1, int(os.getenv("ARL_DAILY_RUN_LIMIT", "20")))
+MAX_BODY_BYTES = 32 * 1024
