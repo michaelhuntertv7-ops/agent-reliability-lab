@@ -1,0 +1,63 @@
+nt(['{"action":"final","answer":"actual"}']).run(self.manifest(expected_final="expected"))
+        self.assertEqual(rec.status, "FAIL")
+        self.assertEqual(rec.failure_class, "FINAL_ASSERTION_MISMATCH")
+
+    def test_12_report_traceable(self):
+        rec = self.agent(['{"action":"final","answer":"ok"}']).run(self.manifest())
+        report = build_report(rec)
+        self.assertEqual(len(report["run_digest"]), 64)
+        self.assertGreater(report["event_count"], 0)
+
+    def test_13_nebius_adapter_parses_provider_evidence(self):
+        transport = FixtureTransport({
+            "id": "abc",
+            "model": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+            "choices": [{"finish_reason": "stop", "message": {"content": "{\"action\":\"final\",\"answer\":\"ok\"}", "reasoning": "brief"}}],
+            "usage": {"prompt_tokens": 26, "completion_tokens": 8, "total_tokens": 34},
+        })
+        adapter = NebiusNemotronAdapter(model="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B", api_key="secret", transport=transport)
+        response = adapter.complete(ModelRequest(messages=({"role":"user","content":"x"},), max_tokens=32))
+        self.assertEqual(response.response_id, "abc")
+        self.assertEqual(response.usage.total_tokens, 34)
+        self.assertEqual(response.finish_reason, "stop")
+
+    def test_14_nebius_secret_not_in_model_response(self):
+        transport = FixtureTransport({
+            "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}],
+            "usage": {},
+        })
+        adapter = NebiusNemotronAdapter(model="m", api_key="TOPSECRET", transport=transport)
+        response = adapter.complete(ModelRequest(messages=({"role":"user","content":"x"},)))
+        self.assertNotIn("TOPSECRET", repr(response))
+
+    def test_15_nebius_missing_key_fails_before_call(self):
+        with self.assertRaises(ProviderError):
+            NebiusNemotronAdapter(model="m", api_key="")
+
+    def test_16_nebius_authorization_header_is_runtime_only(self):
+        transport = FixtureTransport({
+            "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}],
+            "usage": {},
+        })
+        adapter = NebiusNemotronAdapter(model="m", api_key="abc123", transport=transport)
+        adapter.complete(ModelRequest(messages=({"role":"user","content":"x"},)))
+        self.assertEqual(transport.calls[0][1]["Authorization"], "Bearer abc123")
+
+    def test_17_usage_accumulates_across_model_calls(self):
+        rec = self.agent([
+            '{"action":"tool","tool":"lookup","arguments":{"value":"a"}}',
+            '{"action":"final","answer":"ok"}',
+        ]).run(self.manifest())
+        self.assertEqual(rec.prompt_tokens, 20)
+        self.assertEqual(rec.completion_tokens, 10)
+        self.assertEqual(rec.total_tokens, 30)
+
+    def test_18_evidence_omits_secret_material(self):
+        rec = self.agent(['{"action":"final","answer":"ok"}']).run(self.manifest())
+        blob = json.dumps([e.payload for e in rec.events])
+        self.assertNotIn("Authorization", blob)
+        self.assertNotIn("api_key", blob)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
