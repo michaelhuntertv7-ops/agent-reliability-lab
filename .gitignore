@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+.vscode/
+.idea/
+ARL_V0_3_LIVE_CONFORMANCE_EVIDENCE.json
+.v0_3_live_conformance_attempted
