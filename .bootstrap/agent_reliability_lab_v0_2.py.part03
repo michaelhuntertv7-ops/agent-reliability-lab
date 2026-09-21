@@ -1,0 +1,99 @@
+4, temperature=0.0)
+                )
+                model_calls += 1
+                prompt_tokens += response.usage.prompt_tokens
+                completion_tokens += response.usage.completion_tokens
+                total_tokens += response.usage.total_tokens
+                log(
+                    "MODEL_RESPONSE",
+                    {
+                        "step": step_no,
+                        "provider": response.provider,
+                        "model": response.model,
+                        "response_id": response.response_id,
+                        "finish_reason": response.finish_reason,
+                        "usage": asdict(response.usage),
+                        "latency_ms": response.latency_ms,
+                        "has_reasoning": bool(response.reasoning),
+                    },
+                )
+                if response.finish_reason == "length":
+                    raise ProviderMalformed("model output truncated at completion token ceiling")
+                action = self._decode_action(response.content)
+                transcript.append({"role": "assistant", "content": response.content or ""})
+
+                if action["action"] == "final":
+                    answer = action.get("answer")
+                    if not isinstance(answer, str):
+                        raise ProviderMalformed("final answer must be a string")
+                    final_output = answer
+                    log("FINAL", {"answer": answer})
+                    break
+
+                tool_name = action.get("tool")
+                arguments = action.get("arguments")
+                if not isinstance(tool_name, str) or not isinstance(arguments, dict):
+                    raise ProviderMalformed("tool action missing tool/arguments")
+                call = ToolCall(tool_name, arguments)
+                log("TOOL_REQUEST", {"name": tool_name, "arguments": arguments})
+                attempt = 0
+                while True:
+                    try:
+                        out = self.runner.call(manifest, call)
+                        tool_calls += 1
+                        log("TOOL_RESPONSE", {"name": tool_name, "output": out, "attempt": attempt + 1})
+                        transcript.append(
+                            {
+                                "role": "user",
+                                "content": json.dumps(
+                                    {"tool_result": {"name": tool_name, "output": out}},
+                                    separators=(",", ":"),
+                                ),
+                            }
+                        )
+                        break
+                    except ToolTimeout as exc:
+                        log("TOOL_TIMEOUT", {"name": tool_name, "attempt": attempt + 1, "error": str(exc)})
+                        if attempt >= manifest.max_tool_retries:
+                            raise
+                        attempt += 1
+                        retries_used += 1
+            else:
+                raise StepLimitExceeded(f"max_steps={manifest.max_steps}")
+
+            if final_output is None:
+                raise StepLimitExceeded("no final answer before step limit")
+            if manifest.expected_final is not None and final_output != manifest.expected_final:
+                status = "FAIL"
+                failure_class = "FINAL_ASSERTION_MISMATCH"
+                log("ASSERTION_FAIL", {"expected": manifest.expected_final, "actual": final_output})
+        except UndeclaredTool as exc:
+            status, failure_class = "FAIL_CLOSED", "UNDECLARED_TOOL"
+            log("RUN_FAIL", {"class": failure_class, "error": str(exc)})
+        except ToolMalformed as exc:
+            status, failure_class = "FAIL_CLOSED", "MALFORMED_TOOL_RESPONSE"
+            log("RUN_FAIL", {"class": failure_class, "error": str(exc)})
+        except ToolTimeout as exc:
+            status, failure_class = "FAIL_CLOSED", "TOOL_TIMEOUT_RETRIES_EXHAUSTED"
+            log("RUN_FAIL", {"class": failure_class, "error": str(exc)})
+        except ProviderMalformed as exc:
+            status, failure_class = "FAIL_CLOSED", "MALFORMED_MODEL_RESPONSE"
+            log("RUN_FAIL", {"class": failure_class, "error": str(exc)})
+        except ProviderError as exc:
+            status, failure_class = "FAIL_CLOSED", "PROVIDER_ERROR"
+            log("RUN_FAIL", {"class": failure_class, "error": str(exc)})
+        except StepLimitExceeded as exc:
+            status, failure_class = "FAIL_CLOSED", "STEP_LIMIT_EXCEEDED"
+            log("RUN_FAIL", {"class": failure_class, "error": str(exc)})
+
+        log("TASK_END", {"status": status, "failure_class": failure_class})
+        return RunRecord(
+            run_id=str(uuid.uuid4()),
+            task_id=manifest.task_id,
+            started_at=started,
+            finished_at=time.time(),
+            status=status,
+            failure_class=failure_class,
+            final_output=final_output,
+            events=events,
+            model_calls=model_calls,
