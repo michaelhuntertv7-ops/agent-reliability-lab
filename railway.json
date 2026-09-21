@@ -1,14 +1,14 @@
 {
-  "$schema": "https://railway.com/railway.schema.json",
+  "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
+    "startCommand": "python agent_reliability_lab_app_v0_3_public.py",
     "healthcheckPath": "/healthz",
-    "healthcheckTimeout": 60,
+    "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 2,
-    "sleepApplication": true
+    "restartPolicyMaxRetries": 3
   }
 }
