@@ -130,7 +130,7 @@ class NebiusNemotronAdapter:
     variable. The adapter never writes the secret into evidence records.
     """
 
-    DEFAULT_ENDPOINT = "https://api.tokenfactory.nebius.com/v1/chat/completions"
+    DEFAULT_ENDPOINT = "https://api.tokenfactory.us-central1.nebius.com/v1/chat/completions"
 
     def __init__(
         self,
