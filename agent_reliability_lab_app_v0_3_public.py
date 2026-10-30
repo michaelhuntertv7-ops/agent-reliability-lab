@@ -204,7 +204,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1020;color:#d1fae5;
   <details><summary>Show raw structured evidence</summary><pre id="trace"></pre></details>
 </section>
 
-<div class="note">Private candidate UI. A successful private certification applies only to the exact tested source lineage; UI/code changes require fresh review before public certification claims.</div>
+<div class="note">Public judge demo. Results are bound to the exact tested source lineage; any UI or code change requires fresh conformance review before certification claims.</div>
 </div>
 
 <script>
@@ -222,7 +222,7 @@ const labels={
 };
 function eventSummary(e){
   const p=e.payload||{};
-  if(e.event_type==='MODEL_RESPONSE') return `${p.provider||'provider'} · ${p.model||'model'} · finish=${p.finish_reason||'—'} · ${p.total_tokens||0} tokens`;
+  if(e.event_type==='MODEL_RESPONSE') return `${p.provider||'provider'} · ${p.model||'model'} · finish=${p.finish_reason||'—'} · ${(p.usage||{}).total_tokens||0} tokens`;
   if(e.event_type==='TOOL_REQUEST') return `${p.name||'tool'} requested`;
   if(e.event_type==='TOOL_RESPONSE') return `${p.name||'tool'} returned evidence`;
   if(e.event_type==='FINAL') return 'Agent emitted a contract-conforming final action';
